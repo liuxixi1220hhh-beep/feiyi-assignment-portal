@@ -101,7 +101,12 @@
     .teacher-top { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 25px; }
     .teacher-top h1 { margin-bottom: 0; font-size: clamp(31px, 4vw, 48px); }
     .teacher-top p { margin: 9px 0 0; color: var(--muted); }
-    .teacher-note { max-width: 330px; padding: 12px 14px; border-radius: 12px; background: #fff8df; color: #7a5b1b; font-size: 13px; line-height: 1.55; }
+    .teacher-note { max-width: 350px; padding: 12px 14px; border-radius: 12px; background: #fff8df; color: #7a5b1b; font-size: 13px; line-height: 1.55; }
+    .teacher-auth { display: flex; gap: 7px; margin: 8px 0 5px; }
+    .teacher-auth input { min-height: 36px; min-width: 0; flex: 1; border: 1px solid #e6d19a; border-radius: 9px; padding: 0 10px; color: var(--ink); background: #fffdf7; }
+    .teacher-auth button { min-height: 36px; border: 0; border-radius: 9px; padding: 0 12px; color: white; background: var(--ink); font-weight: 800; }
+    .teacher-auth button:hover { background: var(--ink-2); }
+    .teacher-status { font-size: 12px; color: #8d6d2a; }
     .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
     .stat { padding: 19px; border-radius: 17px; background: var(--paper); border: 1px solid rgba(23,40,59,.1); }
     .stat-label { color: var(--muted); font-size: 13px; }
@@ -299,7 +304,11 @@
             <h1 id="teacherTitle">提交情况，一页看清。</h1>
             <p>按地点、平台和关键词查找同学的最新有效提交。</p>
           </div>
-          <div class="teacher-note">当前为简易演示版：记录保存在当前浏览器中。正式给全班使用时，需要接入云端数据和文件存储。</div>
+          <div class="teacher-note">
+            <strong>教师端登录</strong>
+            <div class="teacher-auth"><input id="teacherKey" type="password" autocomplete="current-password" placeholder="请输入教师口令" aria-label="教师口令" /><button id="teacherLogin" type="button">登录</button></div>
+            <span id="teacherStatus" class="teacher-status">登录后可查看并下载全班提交。</span>
+          </div>
         </div>
         <div class="stats">
           <div class="stat"><div class="stat-label">有效提交</div><div id="totalCount" class="stat-value">0</div></div>
@@ -337,13 +346,16 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script>
-    const RECORD_KEY = "feiyi-assignment-records-v1";
+    const API_BASE = "https://feiyi-shixi-zuoye.liuxixi1220hhh.chatgpt.site";
+    const TEACHER_KEY_SESSION = "feiyi-teacher-key-v1";
     const DB_NAME = "feiyi-assignment-files-v1";
     const DB_STORE = "files";
     const allowedExtensions = ["doc", "docx", "pdf", "ppt", "pptx", "mp4"];
     const $ = (selector) => document.querySelector(selector);
     const $$ = (selector) => [...document.querySelectorAll(selector)];
     let pendingSubmission = null;
+    let teacherKey = sessionStorage.getItem(TEACHER_KEY_SESSION) || "";
+    let remoteRecords = [];
 
     function openDb() {
       return new Promise((resolve, reject) => {
@@ -374,11 +386,9 @@
       });
     }
 
-    function getRecords() {
-      try { return JSON.parse(localStorage.getItem(RECORD_KEY) || "[]"); } catch { return []; }
-    }
+    function getRecords() { return remoteRecords; }
 
-    function setRecords(records) { localStorage.setItem(RECORD_KEY, JSON.stringify(records)); }
+    function setRecords(records) { remoteRecords = records; }
 
     function formatSize(bytes) {
       if (bytes < 1024) return bytes + " B";
@@ -402,7 +412,7 @@
       $$(".tab").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
       $("#studentView").classList.toggle("active", view === "student");
       $("#teacherView").classList.toggle("active", view === "teacher");
-      if (view === "teacher") renderRecords();
+      if (view === "teacher") refreshRecords().catch((error) => showToast(error.message, "error"));
     }
 
     function selectedValue(name) { return document.querySelector(`input[name="${name}"]:checked`)?.value || ""; }
@@ -453,14 +463,22 @@
     function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char])); }
 
     async function submitData(data, existing) {
+      const formData = new FormData();
+      formData.append("studentName", data.studentName);
+      formData.append("studentId", data.studentId);
+      formData.append("location", data.location);
+      formData.append("platform", data.platform);
+      formData.append("otherPlatform", data.otherPlatform);
+      formData.append("workTitle", data.workTitle);
+      formData.append("file", data.file, data.file.name);
+      const response = await fetch(`${API_BASE}/api/submissions`, { method: "POST", body: formData });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "云端保存失败，请稍后重试。");
       const record = buildRecord(data, existing);
-      await saveFile(record.id, data.file);
-      const records = getRecords().filter((item) => item.id !== record.id);
-      records.push(record);
-      records.sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
-      setRecords(records);
+      record.id = result.id || record.id;
+      record.submittedAt = result.submittedAt || new Date().toISOString();
       renderSuccess(record);
-      showToast(existing ? "已覆盖原提交，最新版本已保存。" : "作业已提交。", "success");
+      showToast(result.overwritten ? "已覆盖原提交，最新版本已保存。" : "作业已提交到云端。", "success");
     }
 
     function resetStudentForm() {
@@ -497,6 +515,26 @@
       $("#emptyRecords").style.display = records.length ? "none" : "block";
     }
 
+    async function refreshRecords() {
+      if (!teacherKey) {
+        setRecords([]);
+        $("#teacherStatus").textContent = "请输入教师口令后查看并下载全班提交。";
+        renderRecords();
+        return;
+      }
+      const response = await fetch(`${API_BASE}/api/submissions`, { headers: { "X-Teacher-Key": teacherKey } });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        sessionStorage.removeItem(TEACHER_KEY_SESSION);
+        teacherKey = "";
+        $("#teacherStatus").textContent = "教师口令不正确，请重新输入。";
+        throw new Error(result.error || "教师端登录失败。");
+      }
+      setRecords(result.records || []);
+      $("#teacherStatus").textContent = `已连接云端，共 ${getRecords().length} 份有效提交。`;
+      renderRecords();
+    }
+
     $$(".tab").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
     $$('input[name="platform"]').forEach((input) => input.addEventListener("change", () => $("#otherPlatformWrap").classList.toggle("show", selectedValue("platform") === "其他")));
     $("#workFile").addEventListener("change", (event) => {
@@ -525,9 +563,34 @@
     $("#cancelOverwrite").addEventListener("click", () => { $("#confirmBackdrop").classList.remove("show"); pendingSubmission = null; });
     $("#confirmOverwrite").addEventListener("click", async () => { if (!pendingSubmission) return; const { data, existing } = pendingSubmission; $("#confirmBackdrop").classList.remove("show"); pendingSubmission = null; try { await submitData(data, existing); } catch { showToast("保存文件失败，请重试。", "error"); } });
     $("#continueSubmit").addEventListener("click", resetStudentForm);
-    $("#refreshRecords").addEventListener("click", renderRecords);
+    $("#teacherKey").value = teacherKey;
+    $("#teacherLogin").addEventListener("click", () => {
+      const value = $("#teacherKey").value.trim();
+      if (!value) { showToast("请输入教师口令。", "error"); return; }
+      teacherKey = value;
+      sessionStorage.setItem(TEACHER_KEY_SESSION, teacherKey);
+      refreshRecords().catch((error) => showToast(error.message, "error"));
+    });
+    $("#refreshRecords").addEventListener("click", () => refreshRecords().catch((error) => showToast(error.message, "error")));
     ["input", "change"].forEach((eventName) => [$("#searchInput"), $("#locationFilter"), $("#platformFilter")].forEach((element) => element.addEventListener(eventName, renderRecords)));
-    $("#recordsBody").addEventListener("click", async (event) => { const button = event.target.closest(".download-file"); if (!button) return; try { const file = await loadFile(button.dataset.id); if (!file) throw new Error("not found"); const record = getRecords().find((item) => item.id === button.dataset.id); const url = URL.createObjectURL(file); const link = document.createElement("a"); link.href = url; link.download = record?.fileName || "作业文件"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); } catch { showToast("找不到这个文件，可能已被浏览器清理。", "error"); } });
+    $("#recordsBody").addEventListener("click", async (event) => {
+      const button = event.target.closest(".download-file");
+      if (!button) return;
+      try {
+        const response = await fetch(`${API_BASE}/api/submissions/${button.dataset.id}/file`, { headers: { "X-Teacher-Key": teacherKey } });
+        if (!response.ok) throw new Error("download failed");
+        const blob = await response.blob();
+        const record = getRecords().find((item) => item.id === button.dataset.id);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = record?.fileName || "作业文件";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch { showToast("下载失败，请确认教师端仍处于登录状态。", "error"); }
+    });
     window.addEventListener("keydown", (event) => { if (event.key === "Escape") { $("#confirmBackdrop").classList.remove("show"); pendingSubmission = null; } });
   </script>
 </body>
