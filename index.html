@@ -347,7 +347,7 @@
             <button id="refreshRecords" class="button secondary" type="button">刷新列表</button>
           </div>
           <div class="export-bar">
-            <div class="export-copy"><strong>批量整理提交</strong><small>按上面的搜索、地点和平台筛选后，可导出名单信息，或把当前结果打包下载。</small><small id="filteredCount">当前显示 0 份</small></div>
+            <div class="export-copy"><strong>批量整理提交</strong><small>按上面的搜索、地点和平台筛选后，可导出名单信息，或把当前结果打包下载。</small><small>名单可用 Excel / WPS 打开：第一行为表头，下面每行对应一份提交。</small><small id="filteredCount">当前显示 0 份</small></div>
             <div class="export-actions"><button id="exportCsv" class="button secondary" type="button" disabled>导出当前名单（CSV）</button><button id="downloadBatch" class="button primary" type="button" disabled>下载当前作品（ZIP）</button></div>
           </div>
           <div class="records">
@@ -618,7 +618,8 @@
       if (!records.length) { showToast("当前筛选没有可导出的提交。", "error"); return; }
       const header = ["姓名", "学号", "见习地点", "发布平台", "作品名称", "文件名", "文件大小", "提交时间"];
       const rows = records.map((record) => [record.studentName, record.studentId, record.location, record.displayPlatform, record.workTitle, record.fileName, formatSize(record.fileSize), formatDate(record.submittedAt)]);
-      const csv = "\\uFEFF" + [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\\r\\n");
+      // Use an actual UTF-8 BOM and CRLF so spreadsheet apps recognize Chinese and rows.
+      const csv = "\uFEFF" + [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
       downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), `非遗作业名单-${currentFilterLabel()}.csv`);
       showToast(`已导出 ${records.length} 份提交的信息。`, "success");
     });
