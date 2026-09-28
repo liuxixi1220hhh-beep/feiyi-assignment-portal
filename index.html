@@ -118,6 +118,12 @@
     .stat-value { margin-top: 5px; font-size: 29px; font-weight: 900; letter-spacing: -.04em; }
     .dashboard-card { padding: 20px; }
     .toolbar { display: grid; grid-template-columns: 1.5fr 1fr 1fr auto; gap: 10px; align-items: center; margin-bottom: 18px; }
+    .export-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: -3px 0 18px; padding: 14px 15px; border: 1px solid #e6dfcf; border-radius: 14px; background: #fff8df; }
+    .export-copy strong { display: block; font-size: 14px; }
+    .export-copy small { display: block; margin-top: 4px; color: var(--muted); line-height: 1.5; }
+    .export-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+    .export-actions .button { min-height: 40px; padding: 0 13px; font-size: 13px; }
+    .export-actions .button:disabled { cursor: not-allowed; opacity: .5; transform: none; }
     .records { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; min-width: 760px; }
     th, td { padding: 14px 10px; border-bottom: 1px solid #e5e1d8; text-align: left; vertical-align: top; font-size: 14px; }
@@ -182,6 +188,9 @@
       .teacher-status { display: block; font-size: 13px; }
       .toolbar { grid-template-columns: 1fr; }
       .toolbar .button { grid-column: auto; }
+      .export-bar { align-items: stretch; flex-direction: column; }
+      .export-actions { flex-direction: column; }
+      .export-actions .button { width: 100%; min-height: 46px; }
       .modal-actions { flex-direction: column-reverse; }
       .modal-actions .button { width: 100%; }
     }
@@ -336,6 +345,10 @@
             <select id="locationFilter" aria-label="按见习地点筛选"><option value="">全部地点</option><option value="甘熙故居">甘熙故居</option><option value="老门东（秦淮非遗传习馆）">老门东（秦淮非遗传习馆）</option></select>
             <select id="platformFilter" aria-label="按发布平台筛选"><option value="">全部平台</option><option value="小红书">小红书</option><option value="抖音">抖音</option><option value="哔哩哔哩 Bilibili">哔哩哔哩 Bilibili</option><option value="微信视频号">微信视频号</option><option value="微信公众号">微信公众号</option><option value="微博">微博</option><option value="快手">快手</option><option value="其他">其他</option></select>
             <button id="refreshRecords" class="button secondary" type="button">刷新列表</button>
+          </div>
+          <div class="export-bar">
+            <div class="export-copy"><strong>批量整理提交</strong><small>按上面的搜索、地点和平台筛选后，可导出名单信息，或把当前结果打包下载。</small><small id="filteredCount">当前显示 0 份</small></div>
+            <div class="export-actions"><button id="exportCsv" class="button secondary" type="button" disabled>导出当前名单（CSV）</button><button id="downloadBatch" class="button primary" type="button" disabled>下载当前作品（ZIP）</button></div>
           </div>
           <div class="records">
             <table>
@@ -556,6 +569,9 @@
         const haystack = [record.studentName, record.studentId, record.workTitle, record.displayPlatform].join(" ").toLowerCase();
         return (!keyword || haystack.includes(keyword)) && (!location || record.location === location) && (!platform || record.platform === platform);
       });
+      $("#filteredCount").textContent = `当前显示 ${records.length} 份`;
+      $("#exportCsv").disabled = !records.length;
+      $("#downloadBatch").disabled = !records.length;
       $("#recordsBody").innerHTML = records.map((record) => `
         <tr>
           <td><strong>${escapeHtml(record.studentName)}</strong><small>${escapeHtml(record.studentId)}</small></td>
@@ -567,6 +583,70 @@
         </tr>`).join("");
       $("#emptyRecords").style.display = records.length ? "none" : "block";
     }
+
+    function visibleRecords() {
+      const keyword = $("#searchInput").value.trim().toLowerCase();
+      const location = $("#locationFilter").value;
+      const platform = $("#platformFilter").value;
+      return getRecords().filter((record) => {
+        const haystack = [record.studentName, record.studentId, record.workTitle, record.displayPlatform].join(" ").toLowerCase();
+        return (!keyword || haystack.includes(keyword)) && (!location || record.location === location) && (!platform || record.platform === platform);
+      });
+    }
+
+    function csvCell(value) { return `"${String(value ?? "").replace(/"/g, '""')}"`; }
+
+    function downloadBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    }
+
+    function currentFilterLabel() {
+      const location = $("#locationFilter").value || "全部地点";
+      const platform = $("#platformFilter").value || "全部平台";
+      return `${location}-${platform}`.replace(/[\\/:*?"<>|]/g, "_");
+    }
+
+    $("#exportCsv").addEventListener("click", () => {
+      const records = visibleRecords();
+      if (!records.length) { showToast("当前筛选没有可导出的提交。", "error"); return; }
+      const header = ["姓名", "学号", "见习地点", "发布平台", "作品名称", "文件名", "文件大小", "提交时间"];
+      const rows = records.map((record) => [record.studentName, record.studentId, record.location, record.displayPlatform, record.workTitle, record.fileName, formatSize(record.fileSize), formatDate(record.submittedAt)]);
+      const csv = "\\uFEFF" + [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\\r\\n");
+      downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), `非遗作业名单-${currentFilterLabel()}.csv`);
+      showToast(`已导出 ${records.length} 份提交的信息。`, "success");
+    });
+
+    $("#downloadBatch").addEventListener("click", async () => {
+      const records = visibleRecords();
+      if (!records.length) { showToast("当前筛选没有可下载的作品。", "error"); return; }
+      const button = $("#downloadBatch");
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = "打包下载中…";
+      try {
+        const response = await fetch(`${API_BASE}/api/submissions/archive`, { method: "POST", headers: { ...teacherAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ ids: records.map((record) => record.id) }) });
+        if (!response.ok) {
+          const result = await response.json().catch(() => ({}));
+          throw new Error(result.error || "批量下载失败，请按地点或平台分批重试。");
+        }
+        const blob = await response.blob();
+        downloadBlob(blob, `非遗作业-${currentFilterLabel()}.zip`);
+        showToast(`已准备 ${records.length} 份作品下载。`, "success");
+      } catch (error) {
+        showToast(error.message || "批量下载失败，请重试。", "error");
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+        renderRecords();
+      }
+    });
 
     async function refreshRecords() {
       if (!teacherToken && !teacherKey) {
