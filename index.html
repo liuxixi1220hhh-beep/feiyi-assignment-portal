@@ -59,7 +59,7 @@
     label, legend { display: block; margin-bottom: 9px; font-size: 14px; font-weight: 800; }
     legend { padding: 0; }
     .required::after { content: " *"; color: var(--coral); }
-    input[type="text"], input[type="search"], select { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 12px; padding: 0 14px; color: var(--ink); background: #fff; outline: none; transition: border .2s, box-shadow .2s; }
+    input[type="text"], input[type="search"], select { width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 12px; padding: 0 14px; color: var(--ink); background: #fff; outline: none; font-size: 16px; transition: border .2s, box-shadow .2s; }
     input:focus, select:focus { border-color: var(--ink-2); box-shadow: 0 0 0 4px rgba(36,60,83,.1); }
     fieldset { border: 0; padding: 0; margin: 0; }
     .choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -71,11 +71,14 @@
     .hint { display: block; margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.55; }
     .upload-box { position: relative; border: 1.5px dashed #aaa99e; border-radius: 15px; padding: 18px; background: #fff; transition: border .2s, background .2s; }
     .upload-box.drag { border-color: var(--coral); background: #fff7f1; }
-    .upload-box input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-    .upload-content { pointer-events: none; display: flex; align-items: center; gap: 14px; }
+    .upload-box:focus-within { border-color: var(--ink-2); box-shadow: 0 0 0 4px rgba(36,60,83,.1); }
+    .upload-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+    .upload-content { display: flex; align-items: center; gap: 14px; }
     .upload-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; background: var(--gold-soft); color: #9a6a13; font-weight: 900; font-size: 18px; }
     .upload-title { font-weight: 800; }
     .upload-meta { margin-top: 4px; color: var(--muted); font-size: 13px; }
+    .upload-picker { display: inline-flex; align-items: center; justify-content: center; min-height: 38px; margin-top: 10px; padding: 0 13px; border-radius: 10px; color: white; background: var(--ink); font-size: 13px; font-weight: 800; cursor: pointer; user-select: none; touch-action: manipulation; }
+    .upload-picker:active { transform: translateY(1px); }
     .file-preview { display: none; align-items: center; justify-content: space-between; gap: 12px; margin-top: 11px; padding: 11px 13px; border-radius: 11px; background: #edf5f0; color: var(--green); font-size: 14px; }
     .file-preview.show { display: flex; }
     .file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
@@ -105,6 +108,8 @@
     .teacher-auth { display: flex; gap: 7px; margin: 8px 0 5px; }
     .teacher-auth input { min-height: 36px; min-width: 0; flex: 1; border: 1px solid #e6d19a; border-radius: 9px; padding: 0 10px; color: var(--ink); background: #fffdf7; }
     .teacher-auth button { min-height: 36px; border: 0; border-radius: 9px; padding: 0 12px; color: white; background: var(--ink); font-weight: 800; }
+    .teacher-auth button[hidden] { display: none; }
+    .teacher-logout { background: #8b5b3e !important; }
     .teacher-auth button:hover { background: var(--ink-2); }
     .teacher-status { font-size: 12px; color: #8d6d2a; }
     .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
@@ -165,7 +170,16 @@
       .field.full { grid-column: auto; }
       .section-head, .form-actions, .teacher-top { align-items: flex-start; flex-direction: column; }
       .form-actions .button { width: 100%; }
+      .upload-content { align-items: flex-start; }
+      .upload-content > div:last-child { min-width: 0; flex: 1; }
+      .upload-title { line-height: 1.45; }
+      .upload-meta { line-height: 1.55; }
+      .upload-picker { width: 100%; min-height: 46px; margin-top: 12px; font-size: 15px; }
       .teacher-note { max-width: none; width: 100%; }
+      .teacher-auth { flex-wrap: wrap; }
+      .teacher-auth input { flex: 1 1 100%; min-height: 44px; font-size: 16px; }
+      .teacher-auth button { flex: 1; min-height: 44px; }
+      .teacher-status { display: block; font-size: 13px; }
       .toolbar { grid-template-columns: 1fr; }
       .toolbar .button { grid-column: auto; }
       .modal-actions { flex-direction: column-reverse; }
@@ -254,12 +268,13 @@
                 <div class="field full">
                   <label class="required" for="workFile">上传作品</label>
                   <div id="uploadBox" class="upload-box">
-                    <input id="workFile" name="workFile" type="file" accept=".doc,.docx,.pdf,.ppt,.pptx,.mp4" required />
+                    <input id="workFile" class="upload-input" name="workFile" type="file" accept="*/*" required />
                     <div class="upload-content">
                       <div class="upload-icon">↑</div>
                       <div>
-                        <div class="upload-title">点击选择文件，或拖拽到这里</div>
-                        <div class="upload-meta">支持 Word / PDF / PPT / MP4</div>
+                        <div class="upload-title">选择要提交的文件</div>
+                        <div class="upload-meta">手机端点击下方按钮，从“文件”中选择；电脑端也可以拖拽</div>
+                        <label class="upload-picker" for="workFile">选择文件</label>
                       </div>
                     </div>
                   </div>
@@ -306,8 +321,8 @@
           </div>
           <div class="teacher-note">
             <strong>教师端登录</strong>
-            <div class="teacher-auth"><input id="teacherKey" type="password" autocomplete="current-password" placeholder="请输入教师口令" aria-label="教师口令" /><button id="teacherLogin" type="button">登录</button></div>
-            <span id="teacherStatus" class="teacher-status">登录后可查看并下载全班提交。</span>
+            <div class="teacher-auth"><input id="teacherKey" type="password" autocomplete="current-password" placeholder="请输入教师口令" aria-label="教师口令" /><button id="teacherLogin" type="button">登录</button><button id="teacherLogout" class="teacher-logout" type="button" hidden>退出</button></div>
+            <span id="teacherStatus" class="teacher-status">每位老师可同时登录，登录状态互不影响。</span>
           </div>
         </div>
         <div class="stats">
@@ -347,15 +362,20 @@
 
   <script>
     const API_BASE = "https://feiyi-shixi-zuoye.liuxixi1220hhh.chatgpt.site";
-    const TEACHER_KEY_SESSION = "feiyi-teacher-key-v1";
+    const TEACHER_TOKEN_SESSION = "feiyi-teacher-session-v2";
+    const LEGACY_TEACHER_KEY_SESSION = "feiyi-teacher-key-v1";
     const DB_NAME = "feiyi-assignment-files-v1";
     const DB_STORE = "files";
     const allowedExtensions = ["doc", "docx", "pdf", "ppt", "pptx", "mp4"];
     const $ = (selector) => document.querySelector(selector);
     const $$ = (selector) => [...document.querySelectorAll(selector)];
     let pendingSubmission = null;
-    let teacherKey = sessionStorage.getItem(TEACHER_KEY_SESSION) || "";
+    let savedTeacherSession = null;
+    try { savedTeacherSession = JSON.parse(sessionStorage.getItem(TEACHER_TOKEN_SESSION) || "null"); } catch { savedTeacherSession = null; }
+    let teacherToken = savedTeacherSession?.token || "";
+    let teacherKey = sessionStorage.getItem(LEGACY_TEACHER_KEY_SESSION) || "";
     let remoteRecords = [];
+    let isSubmitting = false;
 
     function openDb() {
       return new Promise((resolve, reject) => {
@@ -406,6 +426,27 @@
       toast.className = "toast show " + type;
       window.clearTimeout(showToast.timer);
       showToast.timer = window.setTimeout(() => toast.className = "toast", 3200);
+    }
+
+    function teacherAuthHeaders() {
+      if (teacherToken) return { Authorization: `Bearer ${teacherToken}` };
+      if (teacherKey) return { "X-Teacher-Key": teacherKey };
+      return {};
+    }
+
+    function updateTeacherAuthUI() {
+      const loggedIn = Boolean(teacherToken || teacherKey);
+      $("#teacherLogin").hidden = loggedIn;
+      $("#teacherLogout").hidden = !loggedIn;
+      $("#teacherKey").disabled = loggedIn;
+    }
+
+    function clearTeacherSession() {
+      teacherToken = "";
+      teacherKey = "";
+      sessionStorage.removeItem(TEACHER_TOKEN_SESSION);
+      sessionStorage.removeItem(LEGACY_TEACHER_KEY_SESSION);
+      updateTeacherAuthUI();
     }
 
     function switchView(view) {
@@ -463,6 +504,12 @@
     function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char])); }
 
     async function submitData(data, existing) {
+      if (isSubmitting) return;
+      isSubmitting = true;
+      const submitButton = $("#assignmentForm button[type=submit]");
+      const originalSubmitText = submitButton.textContent;
+      submitButton.disabled = true;
+      submitButton.textContent = "上传中…";
       const formData = new FormData();
       formData.append("studentName", data.studentName);
       formData.append("studentId", data.studentId);
@@ -471,14 +518,20 @@
       formData.append("otherPlatform", data.otherPlatform);
       formData.append("workTitle", data.workTitle);
       formData.append("file", data.file, data.file.name);
-      const response = await fetch(`${API_BASE}/api/submissions`, { method: "POST", body: formData });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || "云端保存失败，请稍后重试。");
-      const record = buildRecord(data, existing);
-      record.id = result.id || record.id;
-      record.submittedAt = result.submittedAt || new Date().toISOString();
-      renderSuccess(record);
-      showToast(result.overwritten ? "已覆盖原提交，最新版本已保存。" : "作业已提交到云端。", "success");
+      try {
+        const response = await fetch(`${API_BASE}/api/submissions`, { method: "POST", body: formData });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || "云端保存失败，请稍后重试。");
+        const record = buildRecord(data, existing);
+        record.id = result.id || record.id;
+        record.submittedAt = result.submittedAt || new Date().toISOString();
+        renderSuccess(record);
+        showToast(result.overwritten ? "已覆盖原提交，最新版本已保存。" : "作业已提交到云端。", "success");
+      } finally {
+        isSubmitting = false;
+        submitButton.disabled = false;
+        submitButton.textContent = originalSubmitText;
+      }
     }
 
     function resetStudentForm() {
@@ -516,17 +569,16 @@
     }
 
     async function refreshRecords() {
-      if (!teacherKey) {
+      if (!teacherToken && !teacherKey) {
         setRecords([]);
         $("#teacherStatus").textContent = "请输入教师口令后查看并下载全班提交。";
         renderRecords();
         return;
       }
-      const response = await fetch(`${API_BASE}/api/submissions`, { headers: { "X-Teacher-Key": teacherKey } });
+      const response = await fetch(`${API_BASE}/api/submissions`, { headers: teacherAuthHeaders() });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
-        sessionStorage.removeItem(TEACHER_KEY_SESSION);
-        teacherKey = "";
+        clearTeacherSession();
         $("#teacherStatus").textContent = "教师口令不正确，请重新输入。";
         throw new Error(result.error || "教师端登录失败。");
       }
@@ -558,26 +610,47 @@
         pendingSubmission = { data, existing };
         $("#confirmInfo").innerHTML = `学号：<b>${escapeHtml(existing.studentId)}</b><br>地点：<b>${escapeHtml(existing.location)}</b><br>原作品：<b>${escapeHtml(existing.workTitle)}</b><br>原提交时间：<b>${formatDate(existing.submittedAt)}</b>`;
         $("#confirmBackdrop").classList.add("show");
-      } else submitData(data, null).catch(() => showToast("保存文件失败，请重试。", "error"));
+      } else submitData(data, null).catch((error) => showToast(error.message || "保存文件失败，请重试。", "error"));
     });
     $("#cancelOverwrite").addEventListener("click", () => { $("#confirmBackdrop").classList.remove("show"); pendingSubmission = null; });
-    $("#confirmOverwrite").addEventListener("click", async () => { if (!pendingSubmission) return; const { data, existing } = pendingSubmission; $("#confirmBackdrop").classList.remove("show"); pendingSubmission = null; try { await submitData(data, existing); } catch { showToast("保存文件失败，请重试。", "error"); } });
+    $("#confirmOverwrite").addEventListener("click", async () => { if (!pendingSubmission) return; const { data, existing } = pendingSubmission; $("#confirmBackdrop").classList.remove("show"); pendingSubmission = null; try { await submitData(data, existing); } catch (error) { showToast(error.message || "保存文件失败，请重试。", "error"); } });
     $("#continueSubmit").addEventListener("click", resetStudentForm);
-    $("#teacherKey").value = teacherKey;
-    $("#teacherLogin").addEventListener("click", () => {
+    $("#teacherKey").value = "";
+    updateTeacherAuthUI();
+    $("#teacherLogin").addEventListener("click", async () => {
       const value = $("#teacherKey").value.trim();
       if (!value) { showToast("请输入教师口令。", "error"); return; }
-      teacherKey = value;
-      sessionStorage.setItem(TEACHER_KEY_SESSION, teacherKey);
-      refreshRecords().catch((error) => showToast(error.message, "error"));
+      const button = $("#teacherLogin");
+      button.disabled = true;
+      button.textContent = "登录中…";
+      try {
+        const response = await fetch(`${API_BASE}/api/teacher-login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: value }) });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.token) throw new Error(result.error || "教师端登录失败，请重试。");
+        teacherToken = result.token;
+        teacherKey = "";
+        sessionStorage.setItem(TEACHER_TOKEN_SESSION, JSON.stringify({ token: teacherToken, expiresAt: result.expiresAt || "" }));
+        sessionStorage.removeItem(LEGACY_TEACHER_KEY_SESSION);
+        updateTeacherAuthUI();
+        await refreshRecords();
+        showToast("登录成功，当前教师端只属于本设备本页面。", "success");
+      } catch (error) {
+        clearTeacherSession();
+        $("#teacherStatus").textContent = "请输入正确的教师口令后查看提交。";
+        showToast(error.message || "教师端登录失败，请重试。", "error");
+      } finally {
+        button.disabled = false;
+        button.textContent = "登录";
+      }
     });
+    $("#teacherLogout").addEventListener("click", () => { clearTeacherSession(); setRecords([]); renderRecords(); $("#teacherStatus").textContent = "已退出教师端；其他老师仍可正常登录。"; showToast("已退出教师端。", "success"); });
     $("#refreshRecords").addEventListener("click", () => refreshRecords().catch((error) => showToast(error.message, "error")));
     ["input", "change"].forEach((eventName) => [$("#searchInput"), $("#locationFilter"), $("#platformFilter")].forEach((element) => element.addEventListener(eventName, renderRecords)));
     $("#recordsBody").addEventListener("click", async (event) => {
       const button = event.target.closest(".download-file");
       if (!button) return;
       try {
-        const response = await fetch(`${API_BASE}/api/submissions/${button.dataset.id}/file`, { headers: { "X-Teacher-Key": teacherKey } });
+        const response = await fetch(`${API_BASE}/api/submissions/${button.dataset.id}/file`, { headers: teacherAuthHeaders() });
         if (!response.ok) throw new Error("download failed");
         const blob = await response.blob();
         const record = getRecords().find((item) => item.id === button.dataset.id);
