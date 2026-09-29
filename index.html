@@ -79,6 +79,9 @@
     .upload-meta { margin-top: 4px; color: var(--muted); font-size: 13px; }
     .upload-picker { display: inline-flex; align-items: center; justify-content: center; min-height: 38px; margin-top: 10px; padding: 0 13px; border-radius: 10px; color: white; background: var(--ink); font-size: 13px; font-weight: 800; cursor: pointer; user-select: none; touch-action: manipulation; }
     .upload-picker:active { transform: translateY(1px); }
+    .wechat-file-tip { display: none; margin-top: 11px; padding: 11px 12px; border: 1px solid #edd395; border-radius: 11px; color: #78530f; background: #fff8df; font-size: 13px; line-height: 1.55; }
+    .wechat-file-tip.show { display: block; }
+    .wechat-file-tip strong { display: block; margin-bottom: 3px; }
     .file-preview { display: none; align-items: center; justify-content: space-between; gap: 12px; margin-top: 11px; padding: 11px 13px; border-radius: 11px; background: #edf5f0; color: var(--green); font-size: 14px; }
     .file-preview.show { display: flex; }
     .file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
@@ -277,7 +280,7 @@
                 <div class="field full">
                   <label class="required" for="workFile">上传作品</label>
                   <div id="uploadBox" class="upload-box">
-                    <input id="workFile" class="upload-input" name="file" type="file" accept=".doc,.docx,.pdf,.ppt,.pptx,.mp4,.zip,.rar,.7z,.tar,.gz,.bz2" multiple required />
+                    <input id="workFile" class="upload-input" name="file" type="file" accept="*/*" multiple required />
                     <div class="upload-content">
                       <div class="upload-icon">↑</div>
                       <div>
@@ -289,6 +292,7 @@
                   </div>
                   <div id="filePreview" class="file-preview"><span class="file-name"></span><span class="file-size"></span></div>
                   <span class="hint">支持同时选择多个文件，也支持 ZIP、RAR、7Z 等压缩包。建议文件名以“学号＋姓名＋作品名称”的方式命名，方便教师整理。</span>
+                  <div id="wechatFileTip" class="wechat-file-tip"><strong>微信内无法选择文档？</strong>若只出现“拍摄 / 从手机相册选择”，请点右上角“…” → “在浏览器打开”，再从系统的“文件”中选择 Word、PDF 或压缩包。网址不用更换。</div>
                 </div>
               </div>
               <div class="form-actions">
@@ -389,6 +393,7 @@
     let teacherToken = savedTeacherSession?.token || "";
     let remoteRecords = [];
     let isSubmitting = false;
+    const isWeChatBrowser = /MicroMessenger/i.test(navigator.userAgent);
 
     function openDb() {
       return new Promise((resolve, reject) => {
@@ -667,6 +672,7 @@
     }
 
     $$(".tab").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
+    if (isWeChatBrowser) $("#wechatFileTip").classList.add("show");
     $$('input[name="platform"]').forEach((input) => input.addEventListener("change", () => $("#otherPlatformWrap").classList.toggle("show", selectedValue("platform") === "其他")));
    $("#workFile").addEventListener("change", (event) => {
       const files = [...event.target.files];
