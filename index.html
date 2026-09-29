@@ -277,18 +277,18 @@
                 <div class="field full">
                   <label class="required" for="workFile">上传作品</label>
                   <div id="uploadBox" class="upload-box">
-                    <input id="workFile" class="upload-input" name="file" type="file" accept="*/*" required />
+                    <input id="workFile" class="upload-input" name="file" type="file" accept=".doc,.docx,.pdf,.ppt,.pptx,.mp4,.zip,.rar,.7z,.tar,.gz,.bz2" multiple required />
                     <div class="upload-content">
                       <div class="upload-icon">↑</div>
                       <div>
-                        <div class="upload-title">选择要提交的文件</div>
-                        <div class="upload-meta">手机端点击下方按钮，从“文件”中选择；电脑端也可以拖拽</div>
+                        <div class="upload-title">选择要提交的文件（可多选）</div>
+                        <div class="upload-meta">手机端点击下方按钮，从“文件”中选择；电脑端也可以拖拽多个文件</div>
                         <label class="upload-picker" for="workFile">选择文件</label>
                       </div>
                     </div>
                   </div>
                   <div id="filePreview" class="file-preview"><span class="file-name"></span><span class="file-size"></span></div>
-                  <span class="hint">建议文件名以“学号＋姓名＋作品名称”的方式命名，方便教师整理。</span>
+                  <span class="hint">支持同时选择多个文件，也支持 ZIP、RAR、7Z 等压缩包。建议文件名以“学号＋姓名＋作品名称”的方式命名，方便教师整理。</span>
                 </div>
               </div>
               <div class="form-actions">
@@ -379,7 +379,7 @@
     const LEGACY_TEACHER_KEY_SESSION = "feiyi-teacher-key-v1";
     const DB_NAME = "feiyi-assignment-files-v1";
     const DB_STORE = "files";
-    const allowedExtensions = ["doc", "docx", "pdf", "ppt", "pptx", "mp4"];
+    const allowedExtensions = ["doc", "docx", "pdf", "ppt", "pptx", "mp4", "zip", "rar", "7z", "tar", "gz", "bz2"];
     const $ = (selector) => document.querySelector(selector);
     const $$ = (selector) => [...document.querySelectorAll(selector)];
     let pendingSubmission = null;
@@ -469,7 +469,7 @@
     function selectedValue(name) { return document.querySelector(`input[name="${name}"]:checked`)?.value || ""; }
 
     function readForm() {
-      const file = $("#workFile").files[0];
+      const files = [...$("#workFile").files];
       const platform = selectedValue("platform");
       const otherPlatform = $("#otherPlatform").value.trim();
       return {
@@ -480,22 +480,22 @@
         otherPlatform: platform === "其他" ? otherPlatform : "",
         displayPlatform: platform === "其他" ? (otherPlatform || "其他") : platform,
         workTitle: $("#workTitle").value.trim(),
-        file
+        files
       };
     }
 
     function validateSubmission(data) {
-      if (!data.studentName || !data.studentId || !data.location || !data.platform || !data.workTitle || !data.file) return "请把所有必填项填写完整。";
+      if (!data.studentName || !data.studentId || !data.location || !data.platform || !data.workTitle || !data.files.length) return "请把所有必填项填写完整。";
       if (!/^\d+$/.test(data.studentId)) return "学号请填写数字。";
       if (data.platform === "其他" && !data.otherPlatform) return "请填写其他平台名称。";
-      const ext = data.file.name.split(".").pop().toLowerCase();
-      if (!allowedExtensions.includes(ext)) return "文件格式不支持，请上传 Word、PDF、PPT 或 MP4 文件。";
+      const unsupported = data.files.find((file) => !allowedExtensions.includes(file.name.split(".").pop().toLowerCase()));
+      if (unsupported) return `文件“${unsupported.name}”格式不支持，请上传 Word、PDF、PPT、MP4 或压缩包。`;
       return "";
     }
 
     function buildRecord(data, existing) {
       const id = existing?.id || crypto.randomUUID();
-      return { id, studentName: data.studentName, studentId: data.studentId, location: data.location, platform: data.platform, displayPlatform: data.displayPlatform, workTitle: data.workTitle, fileName: data.file.name, fileSize: data.file.size, fileType: data.file.type || "application/octet-stream", submittedAt: new Date().toISOString() };
+      return { id, studentName: data.studentName, studentId: data.studentId, location: data.location, platform: data.platform, displayPlatform: data.displayPlatform, workTitle: data.workTitle, fileName: data.files.map((file) => file.name).join("、"), fileSize: data.files.reduce((sum, file) => sum + file.size, 0), fileType: data.files.length === 1 ? (data.files[0].type || "application/octet-stream") : "application/octet-stream", submittedAt: new Date().toISOString() };
     }
 
     function renderSuccess(record) {
@@ -538,23 +538,30 @@
     }
 
     async function uploadToLocalComputer(data, onProgress) {
-      const totalParts = Math.max(1, Math.ceil(data.file.size / LOCAL_UPLOAD_CHUNK_BYTES));
+      const totalBytes = data.files.reduce((sum, file) => sum + file.size, 0);
+      let uploadedBytes = 0;
       const initialized = await receiverRequest("/api/upload/init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           studentName: data.studentName, studentId: data.studentId, location: data.location, platform: data.platform,
-          otherPlatform: data.otherPlatform, workTitle: data.workTitle, fileName: data.file.name,
-          fileType: data.file.type || "application/octet-stream", fileSize: data.file.size, totalParts,
+          otherPlatform: data.otherPlatform, workTitle: data.workTitle,
+          files: data.files.map((file) => ({ fileName: file.name, fileType: file.type || "application/octet-stream", fileSize: file.size })),
         }),
       });
-      for (let index = 0; index < totalParts; index += 1) {
-        const start = index * LOCAL_UPLOAD_CHUNK_BYTES;
-        const part = data.file.slice(start, Math.min(start + LOCAL_UPLOAD_CHUNK_BYTES, data.file.size));
-        const receipt = await receiverRequest(`/api/upload/chunk?id=${encodeURIComponent(initialized.id)}&index=${index}`, {
-          method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: part,
-        });
-        onProgress(Math.min(100, Math.round((receipt.received / data.file.size) * 100)), index + 1, totalParts);
+      for (let fileIndex = 0; fileIndex < data.files.length; fileIndex += 1) {
+        const file = data.files[fileIndex];
+        const totalParts = Math.max(1, Math.ceil(file.size / LOCAL_UPLOAD_CHUNK_BYTES));
+        for (let index = 0; index < totalParts; index += 1) {
+          const start = index * LOCAL_UPLOAD_CHUNK_BYTES;
+          const part = file.slice(start, Math.min(start + LOCAL_UPLOAD_CHUNK_BYTES, file.size));
+          const receipt = await receiverRequest(`/api/upload/chunk?id=${encodeURIComponent(initialized.id)}&fileIndex=${fileIndex}&index=${index}`, {
+            method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: part,
+          });
+          const currentUploaded = uploadedBytes + receipt.received;
+          onProgress(Math.min(100, Math.round((currentUploaded / totalBytes) * 100)), fileIndex + 1, data.files.length, index + 1, totalParts);
+        }
+        uploadedBytes += file.size;
       }
       return receiverRequest("/api/upload/complete", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: initialized.id }),
@@ -570,8 +577,8 @@
       submitButton.textContent = "正在连接上传通道…";
       const data = readForm();
       try {
-        const result = await uploadToLocalComputer(data, (percent, part, total) => {
-          submitButton.textContent = `正在上传 ${percent}%（第 ${part}/${total} 段）`;
+        const result = await uploadToLocalComputer(data, (percent, fileNumber, fileTotal, part, total) => {
+          submitButton.textContent = `正在上传 ${percent}%（文件 ${fileNumber}/${fileTotal}，第 ${part}/${total} 段）`;
         });
         const record = buildRecord(data, { id: result.id });
         record.submittedAt = result.submittedAt || new Date().toISOString();
@@ -642,16 +649,16 @@
 
     $$(".tab").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
     $$('input[name="platform"]').forEach((input) => input.addEventListener("change", () => $("#otherPlatformWrap").classList.toggle("show", selectedValue("platform") === "其他")));
-    $("#workFile").addEventListener("change", (event) => {
-      const file = event.target.files[0];
-      if (!file) return;
-      $("#filePreview .file-name").textContent = file.name;
-      $("#filePreview .file-size").textContent = formatSize(file.size);
+   $("#workFile").addEventListener("change", (event) => {
+      const files = [...event.target.files];
+      if (!files.length) return;
+      $("#filePreview .file-name").textContent = files.length === 1 ? files[0].name : `${files.length} 个文件：${files.map((file) => file.name).join("、")}`;
+      $("#filePreview .file-size").textContent = formatSize(files.reduce((sum, file) => sum + file.size, 0));
       $("#filePreview").classList.add("show");
-    });
-    ["dragenter", "dragover"].forEach((eventName) => $("#uploadBox").addEventListener(eventName, (event) => { event.preventDefault(); $("#uploadBox").classList.add("drag"); }));
-    ["dragleave", "drop"].forEach((eventName) => $("#uploadBox").addEventListener(eventName, (event) => { event.preventDefault(); $("#uploadBox").classList.remove("drag"); }));
-    $("#uploadBox").addEventListener("drop", (event) => { const file = event.dataTransfer.files[0]; if (!file) return; const input = $("#workFile"); const transfer = new DataTransfer(); transfer.items.add(file); input.files = transfer.files; input.dispatchEvent(new Event("change")); });
+   });
+   ["dragenter", "dragover"].forEach((eventName) => $("#uploadBox").addEventListener(eventName, (event) => { event.preventDefault(); $("#uploadBox").classList.add("drag"); }));
+   ["dragleave", "drop"].forEach((eventName) => $("#uploadBox").addEventListener(eventName, (event) => { event.preventDefault(); $("#uploadBox").classList.remove("drag"); }));
+    $("#uploadBox").addEventListener("drop", (event) => { const files = [...event.dataTransfer.files]; if (!files.length) return; const input = $("#workFile"); const transfer = new DataTransfer(); files.forEach((file) => transfer.items.add(file)); input.files = transfer.files; input.dispatchEvent(new Event("change")); });
 
     $("#assignmentForm").addEventListener("submit", (event) => {
       event.preventDefault();
