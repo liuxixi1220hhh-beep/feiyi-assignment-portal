@@ -373,7 +373,8 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script>
-    const UPLOAD_API_BASE = "https://careers-proc-delegation-pig.trycloudflare.com";
+    // 使用 TCP/HTTP2 通道，避开部分网络对 QUIC 大文件分段传输的中断。
+    const UPLOAD_API_BASE = "https://routers-sonic-bool-pros.trycloudflare.com";
     const TEACHER_API_BASE = UPLOAD_API_BASE;
     const TEACHER_TOKEN_SESSION = "feiyi-local-teacher-session-v1";
     const LEGACY_TEACHER_KEY_SESSION = "feiyi-teacher-key-v1";
