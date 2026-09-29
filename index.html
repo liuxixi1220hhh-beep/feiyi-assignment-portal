@@ -375,6 +375,7 @@
 
   <script>
     const API_BASE = "https://feiyi-shixi-zuoye.liuxixi1220hhh.chatgpt.site";
+    const UPLOAD_API_BASE = "https://internal-moments-makeup-penguin.trycloudflare.com";
     const TEACHER_TOKEN_SESSION = "feiyi-teacher-session-v2";
     const LEGACY_TEACHER_KEY_SESSION = "feiyi-teacher-key-v1";
     const DB_NAME = "feiyi-assignment-files-v1";
@@ -516,86 +517,51 @@
 
     function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char])); }
 
-    function uploadSocketUrl() {
-      return API_BASE.replace(/^http/i, "ws") + "/api/submissions/socket";
+    const LOCAL_UPLOAD_CHUNK_BYTES = 5 * 1024 * 1024;
+
+    function wait(milliseconds) { return new Promise((resolve) => window.setTimeout(resolve, milliseconds)); }
+
+    async function receiverRequest(path, options, attempts = 3) {
+      let lastError;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 120000);
+        try {
+          const response = await fetch(UPLOAD_API_BASE + path, { ...options, signal: controller.signal });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || "本机收作业服务暂时无法保存文件。");
+          return result;
+        } catch (error) {
+          lastError = error;
+          if (attempt < attempts) await wait(900 * attempt);
+        } finally {
+          window.clearTimeout(timeout);
+        }
+      }
+      throw new Error(lastError?.message || "上传连接失败，请保持网络畅通后重试。");
     }
 
-    function uploadWithSocket(data, onProgress) {
-      return new Promise((resolve, reject) => {
-        let socket;
-        let settled = false;
-        let waiting = null;
-        let timeoutId = 0;
-
-        function finish(callback, value) {
-          if (settled) return;
-          settled = true;
-          window.clearTimeout(timeoutId);
-          try { socket?.close(); } catch {}
-          callback(value);
-        }
-
-        function fail(error) {
-          finish(reject, error instanceof Error ? error : new Error(String(error || "上传连接中断，请重试。")));
-        }
-
-        function request(payload, expectedType, timeout = 45000) {
-          return new Promise((requestResolve, requestReject) => {
-            if (settled || socket.readyState !== WebSocket.OPEN) { requestReject(new Error("上传连接未建立，请重新提交。")); return; }
-            waiting = { expectedType, resolve: requestResolve, reject: requestReject };
-            window.clearTimeout(timeoutId);
-            timeoutId = window.setTimeout(() => {
-              if (waiting) {
-                const pending = waiting;
-                waiting = null;
-                pending.reject(new Error("上传连接超时，请检查网络后重新提交。"));
-              }
-            }, timeout);
-            socket.send(payload);
-          });
-        }
-
-        try {
-          socket = new WebSocket(uploadSocketUrl());
-          socket.binaryType = "arraybuffer";
-        } catch {
-          fail(new Error("当前浏览器无法建立上传通道，请更新浏览器后重试。"));
-          return;
-        }
-
-        socket.onerror = () => fail(new Error("上传连接被网络拦截。请关闭微信内置浏览器后，用系统浏览器打开原网址重新提交。"));
-        socket.onclose = () => { if (!settled) fail(new Error("上传连接已断开，请重新提交。")); };
-        socket.onmessage = (event) => {
-          let message;
-          try { message = JSON.parse(event.data); } catch { fail(new Error("上传服务返回异常，请重新提交。")); return; }
-          if (message.type === "error") { fail(new Error(message.error || "上传失败，请重新提交。")); return; }
-          if (!waiting) return;
-          const pending = waiting;
-          waiting = null;
-          window.clearTimeout(timeoutId);
-          if (message.type !== pending.expectedType) { pending.reject(new Error("上传步骤异常，请重新提交。")); return; }
-          pending.resolve(message);
-        };
-        socket.onopen = async () => {
-          try {
-            const ready = await request(JSON.stringify({
-              type: "start", studentName: data.studentName, studentId: data.studentId, location: data.location,
-              platform: data.platform, otherPlatform: data.otherPlatform, workTitle: data.workTitle,
-              fileName: data.file.name, fileType: data.file.type || "application/octet-stream", fileSize: data.file.size,
-            }), "ready");
-            const chunkSize = Number(ready.chunkSize) || (6 * 1024 * 1024);
-            const totalParts = Math.max(1, Math.ceil(data.file.size / chunkSize));
-            for (let offset = 0, part = 0; offset < data.file.size; offset += chunkSize, part += 1) {
-              const bytes = await data.file.slice(offset, Math.min(offset + chunkSize, data.file.size)).arrayBuffer();
-              const receipt = await request(bytes, "part", 90000);
-              onProgress(Math.min(100, Math.round((receipt.bytesReceived / data.file.size) * 100)), part + 1, totalParts);
-            }
-            const result = await request(JSON.stringify({ type: "complete" }), "complete", 90000);
-            finish(resolve, result);
-          } catch (error) {
-            fail(error);
-          }
-        };
+    async function uploadToLocalComputer(data, onProgress) {
+      const totalParts = Math.max(1, Math.ceil(data.file.size / LOCAL_UPLOAD_CHUNK_BYTES));
+      const initialized = await receiverRequest("/api/upload/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          studentName: data.studentName, studentId: data.studentId, location: data.location, platform: data.platform,
+          otherPlatform: data.otherPlatform, workTitle: data.workTitle, fileName: data.file.name,
+          fileType: data.file.type || "application/octet-stream", fileSize: data.file.size, totalParts,
+        }),
+      });
+      for (let index = 0; index < totalParts; index += 1) {
+        const start = index * LOCAL_UPLOAD_CHUNK_BYTES;
+        const part = data.file.slice(start, Math.min(start + LOCAL_UPLOAD_CHUNK_BYTES, data.file.size));
+        const receipt = await receiverRequest(`/api/upload/chunk?id=${encodeURIComponent(initialized.id)}&index=${index}`, {
+          method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: part,
+        });
+        onProgress(Math.min(100, Math.round((receipt.received / data.file.size) * 100)), index + 1, totalParts);
+      }
+      return receiverRequest("/api/upload/complete", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: initialized.id }),
       });
     }
 
@@ -608,7 +574,7 @@
       submitButton.textContent = "正在连接上传通道…";
       const data = readForm();
       try {
-        const result = await uploadWithSocket(data, (percent, part, total) => {
+        const result = await uploadToLocalComputer(data, (percent, part, total) => {
           submitButton.textContent = `正在上传 ${percent}%（第 ${part}/${total} 段）`;
         });
         const record = buildRecord(data, { id: result.id });
