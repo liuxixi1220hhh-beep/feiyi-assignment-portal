@@ -513,15 +513,17 @@
 
     function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char])); }
 
-    const LOCAL_UPLOAD_CHUNK_BYTES = 5 * 1024 * 1024;
+    // 手机网络、微信内置浏览器在连续传输较大请求时容易中断；将每段控制在 512 KB，
+    // 失败后只会重传当前这一小段，而不是重新上传整份作业。
+    const LOCAL_UPLOAD_CHUNK_BYTES = 512 * 1024;
 
     function wait(milliseconds) { return new Promise((resolve) => window.setTimeout(resolve, milliseconds)); }
 
-    async function receiverRequest(path, options, attempts = 3) {
+    async function receiverRequest(path, options, { attempts = 4, timeout = 30000, onRetry } = {}) {
       let lastError;
       for (let attempt = 1; attempt <= attempts; attempt += 1) {
         const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), 120000);
+        const timeoutId = window.setTimeout(() => controller.abort(), timeout);
         try {
           const response = await fetch(UPLOAD_API_BASE + path, { ...options, signal: controller.signal });
           const result = await response.json().catch(() => ({}));
@@ -529,43 +531,59 @@
           return result;
         } catch (error) {
           lastError = error;
-          if (attempt < attempts) await wait(900 * attempt);
+          if (attempt < attempts) {
+            onRetry?.(attempt + 1, attempts);
+            await wait(600 * attempt);
+          }
         } finally {
-          window.clearTimeout(timeout);
+          window.clearTimeout(timeoutId);
         }
       }
       throw new Error(lastError?.message || "上传连接失败，请保持网络畅通后重试。");
     }
 
-    async function uploadToLocalComputer(data, onProgress) {
+    async function uploadToLocalComputer(data, onProgress, onStatus) {
       const totalBytes = data.files.reduce((sum, file) => sum + file.size, 0);
       let uploadedBytes = 0;
+      onStatus("正在建立安全上传通道…");
       const initialized = await receiverRequest("/api/upload/init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           studentName: data.studentName, studentId: data.studentId, location: data.location, platform: data.platform,
           otherPlatform: data.otherPlatform, workTitle: data.workTitle,
+          chunkSize: LOCAL_UPLOAD_CHUNK_BYTES,
           files: data.files.map((file) => ({ fileName: file.name, fileType: file.type || "application/octet-stream", fileSize: file.size })),
         }),
+      }, {
+        attempts: 3,
+        timeout: 20000,
+        onRetry: (attempt, total) => onStatus(`上传通道连接不稳定，正在重试（${attempt}/${total}）…`),
       });
+      const chunkBytes = Math.min(LOCAL_UPLOAD_CHUNK_BYTES, Number(initialized.chunkSize) || LOCAL_UPLOAD_CHUNK_BYTES);
       for (let fileIndex = 0; fileIndex < data.files.length; fileIndex += 1) {
         const file = data.files[fileIndex];
-        const totalParts = Math.max(1, Math.ceil(file.size / LOCAL_UPLOAD_CHUNK_BYTES));
+        const totalParts = Math.max(1, Math.ceil(file.size / chunkBytes));
         for (let index = 0; index < totalParts; index += 1) {
-          const start = index * LOCAL_UPLOAD_CHUNK_BYTES;
-          const part = file.slice(start, Math.min(start + LOCAL_UPLOAD_CHUNK_BYTES, file.size));
+          const start = index * chunkBytes;
+          const part = file.slice(start, Math.min(start + chunkBytes, file.size));
+          onStatus(`正在上传（文件 ${fileIndex + 1}/${data.files.length}，第 ${index + 1}/${totalParts} 段）…`);
           const receipt = await receiverRequest(`/api/upload/chunk?id=${encodeURIComponent(initialized.id)}&fileIndex=${fileIndex}&index=${index}`, {
             method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: part,
+          }, {
+            attempts: 5,
+            timeout: 30000,
+            onRetry: (attempt, total) => onStatus(`第 ${index + 1}/${totalParts} 段连接不稳定，正在重试（${attempt}/${total}）…`),
           });
           const currentUploaded = uploadedBytes + receipt.received;
           onProgress(Math.min(100, Math.round((currentUploaded / totalBytes) * 100)), fileIndex + 1, data.files.length, index + 1, totalParts);
         }
         uploadedBytes += file.size;
       }
+      onStatus("文件已传完，正在保存作业…");
       return receiverRequest("/api/upload/complete", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: initialized.id }),
-      });
+      }, { attempts: 3, timeout: 30000, onRetry: (attempt, total) => onStatus(`正在确认保存，重试中（${attempt}/${total}）…`) });
     }
 
     async function submitData() {
@@ -574,12 +592,12 @@
       const submitButton = $("#assignmentForm button[type=submit]");
       const originalSubmitText = submitButton.textContent;
       submitButton.disabled = true;
-      submitButton.textContent = "正在连接上传通道…";
+      submitButton.textContent = "正在准备上传…";
       const data = readForm();
       try {
         const result = await uploadToLocalComputer(data, (percent, fileNumber, fileTotal, part, total) => {
           submitButton.textContent = `正在上传 ${percent}%（文件 ${fileNumber}/${fileTotal}，第 ${part}/${total} 段）`;
-        });
+        }, (status) => { submitButton.textContent = status; });
         const record = buildRecord(data, { id: result.id });
         record.submittedAt = result.submittedAt || new Date().toISOString();
         isSubmitting = false;
