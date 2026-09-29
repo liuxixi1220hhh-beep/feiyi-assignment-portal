@@ -277,7 +277,7 @@
                 <div class="field full">
                   <label class="required" for="workFile">上传作品</label>
                   <div id="uploadBox" class="upload-box">
-                    <input id="workFile" class="upload-input" name="workFile" type="file" accept="*/*" required />
+                    <input id="workFile" class="upload-input" name="file" type="file" accept="*/*" required />
                     <div class="upload-content">
                       <div class="upload-icon">↑</div>
                       <div>
@@ -372,6 +372,7 @@
     </div>
   </div>
   <div id="toast" class="toast" role="status"></div>
+  <iframe id="fallbackFrame" name="feiyiSubmitFrame" title="备用提交通道" hidden></iframe>
 
   <script>
     const API_BASE = "https://feiyi-shixi-zuoye.liuxixi1220hhh.chatgpt.site";
@@ -516,6 +517,50 @@
 
     function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char])); }
 
+    function submitViaFallbackForm() {
+      return new Promise((resolve, reject) => {
+        const form = $("#assignmentForm");
+        const frame = $("#fallbackFrame");
+        const original = {
+          action: form.getAttribute("action"),
+          method: form.getAttribute("method"),
+          target: form.getAttribute("target"),
+          enctype: form.getAttribute("enctype")
+        };
+        let finished = false;
+        const restore = () => {
+          if (original.action === null) form.removeAttribute("action"); else form.setAttribute("action", original.action);
+          if (original.method === null) form.removeAttribute("method"); else form.setAttribute("method", original.method);
+          if (original.target === null) form.removeAttribute("target"); else form.setAttribute("target", original.target);
+          if (original.enctype === null) form.removeAttribute("enctype"); else form.setAttribute("enctype", original.enctype);
+        };
+        const finish = (callback, value) => {
+          if (finished) return;
+          finished = true;
+          window.removeEventListener("message", onMessage);
+          window.clearTimeout(timeout);
+          restore();
+          callback(value);
+        };
+        const onMessage = (event) => {
+          if (event.origin !== new URL(API_BASE).origin || event.source !== frame.contentWindow || event.data?.type !== "feiyi-submit-result") return;
+          if (event.data.ok) finish(resolve, event.data);
+          else finish(reject, new Error(event.data.error || "备用提交失败，请重试。"));
+        };
+        const timeout = window.setTimeout(() => finish(reject, new Error("提交连接超时，请切换网络后重试。")), 90000);
+        window.addEventListener("message", onMessage);
+        form.action = API_BASE + "/api/submissions?fallback=1";
+        form.method = "POST";
+        form.target = "feiyiSubmitFrame";
+        form.enctype = "multipart/form-data";
+        try {
+          HTMLFormElement.prototype.submit.call(form);
+        } catch (error) {
+          finish(reject, error);
+        }
+      });
+    }
+
     async function submitData(data, existing) {
       if (isSubmitting) return;
       isSubmitting = true;
@@ -532,9 +577,15 @@
       formData.append("workTitle", data.workTitle);
       formData.append("file", data.file, data.file.name);
       try {
-        const response = await fetch(`${API_BASE}/api/submissions`, { method: "POST", body: formData });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.error || "云端保存失败，请稍后重试。");
+        let result;
+        try {
+          const response = await fetch(API_BASE + "/api/submissions", { method: "POST", body: formData });
+          result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || "云端保存失败，请稍后重试。");
+        } catch (error) {
+          if (!(error instanceof TypeError) && error.message !== "Failed to fetch") throw error;
+          result = await submitViaFallbackForm();
+        }
         const record = buildRecord(data, existing);
         record.id = result.id || record.id;
         record.submittedAt = result.submittedAt || new Date().toISOString();
